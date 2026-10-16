@@ -48,7 +48,103 @@ async def _video_size(path: Path) -> tuple[int, int]:
     return width + (width % 2), height + (height % 2)
 
 
-async def concat_videos(paths: list[Path], destination: Path) -> None:
+async def _duration(path: Path) -> float:
+    text = await _run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=nw=1:nk=1",
+            str(path),
+        ]
+    )
+    try:
+        duration = float(text.splitlines()[0])
+    except (ValueError, IndexError) as exc:
+        raise AssembleError("Không đọc được độ dài video.") from exc
+    if duration < 0.5:
+        raise AssembleError("Video quá ngắn để ghép nhạc.")
+    return duration
+
+
+async def _has_audio(path: Path) -> bool:
+    text = await _run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "csv=p=0",
+            str(path),
+        ]
+    )
+    return "audio" in text
+
+
+async def _mix_music(video: Path, music: Path, volume: float) -> None:
+    if not await _has_audio(music):
+        raise AssembleError("File nhạc không có tiếng.")
+    duration = await _duration(video)
+    fade = min(1.2, max(0.2, duration / 8))
+    fade_out = max(0.0, duration - fade)
+    mixed = video.with_name(f"{video.stem}-music.mp4")
+    filter_complex = (
+        f"[1:a:0]aformat=sample_rates=48000:channel_layouts=stereo,"
+        f"volume={volume:.3f},"
+        f"afade=t=in:st=0:d={fade:.3f},"
+        f"afade=t=out:st={fade_out:.3f}:d={fade:.3f},"
+        f"atrim=0:{duration:.3f}[m];"
+        f"[0:a:0][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]"
+    )
+    try:
+        await _run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(video),
+                "-stream_loop",
+                "-1",
+                "-i",
+                str(music),
+                "-filter_complex",
+                filter_complex,
+                "-map",
+                "0:v:0",
+                "-map",
+                "[a]",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "160k",
+                "-movflags",
+                "+faststart",
+                str(mixed),
+            ]
+        )
+        if not mixed.is_file() or mixed.stat().st_size < 1000:
+            raise AssembleError("File ghép nhạc ra rỗng.")
+        mixed.replace(video)
+    except Exception:
+        mixed.unlink(missing_ok=True)
+        raise
+
+
+async def concat_videos(
+    paths: list[Path],
+    destination: Path,
+    music: Path | None = None,
+    music_volume: float = 0.15,
+) -> None:
     if len(paths) < 2:
         raise AssembleError("Cần ít nhất hai video để ghép.")
     for path in paths:
@@ -96,3 +192,5 @@ async def concat_videos(paths: list[Path], destination: Path) -> None:
     await _run(command)
     if not destination.is_file() or destination.stat().st_size < 1000:
         raise AssembleError("File ghép ra rỗng.")
+    if music is not None:
+        await _mix_music(destination, music, music_volume)

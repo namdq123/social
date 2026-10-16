@@ -66,6 +66,8 @@ export default function App() {
   const [continuityRules, setContinuityRules] = useState("");
   const continuityDirtyRef = useRef(false);
   const [pipelineBusy, setPipelineBusy] = useState(false);
+  const [musicFile, setMusicFile] = useState(null);
+  const [musicLevel, setMusicLevel] = useState(15);
   const [pipelineError, setPipelineError] = useState("");
   const [bible, setBible] = useState(null);
   const [bibleText, setBibleText] = useState("");
@@ -506,8 +508,19 @@ export default function App() {
     setFormNote("");
     setPipelineBusy(true);
     try {
-      await request(`/projects/${projectId}/episodes/${episodeId}/assemble`, { method: "POST" });
-      setFormNote("Đã ghép các cảnh thành một video. File nằm ở hàng đợi, bấm Tải file để đăng YouTube.");
+      const options = { method: "POST" };
+      if (musicFile) {
+        const body = new FormData();
+        body.set("music", musicFile);
+        body.set("music_volume", String(musicLevel / 100));
+        options.body = body;
+      }
+      await request(`/projects/${projectId}/episodes/${episodeId}/assemble`, options);
+      setFormNote(
+        musicFile
+          ? "Đã ghép các cảnh và nhạc nền. File nằm ở hàng đợi, bấm Tải file để đăng YouTube."
+          : "Đã ghép các cảnh thành một video. File nằm ở hàng đợi, bấm Tải file để đăng YouTube.",
+      );
       await refreshBoard();
     } catch (error) {
       setPipelineError(error.message);
@@ -1030,13 +1043,38 @@ export default function App() {
                   )}
                   {selectedEpisode.scene_count > 1 && (
                     <button type="button" onClick={assembleEpisode} disabled={pipelineBusy}>
-                      Ghép thành một video
+                      {musicFile ? "Ghép cảnh và nhạc" : "Ghép thành một video"}
                     </button>
                   )}
                   <button type="button" className="danger" onClick={removeEpisode}>
                     Xóa tập
                   </button>
                 </div>
+                {selectedEpisode.scene_count > 1 && (
+                  <div className="music-row">
+                    <label>
+                      Nhạc nền
+                      <input
+                        type="file"
+                        accept=".mp3,.m4a,.aac,.wav,.ogg,.flac,audio/*"
+                        onChange={(event) => setMusicFile(event.target.files?.[0] || null)}
+                      />
+                    </label>
+                    <label>
+                      Mức nhạc ({musicLevel}%)
+                      <input
+                        type="range"
+                        min="5"
+                        max="40"
+                        value={musicLevel}
+                        onChange={(event) => setMusicLevel(Number(event.target.value))}
+                      />
+                    </label>
+                    <p className="hint">
+                      Chọn file nhạc bạn có quyền dùng. Nhạc chạy suốt cả tập, nhỏ hơn lời thoại, và được lặp nếu ngắn hơn video. Dán link YouTube không được: hãy tải file về máy rồi chọn ở đây. Bài trong Thư viện âm thanh YouTube cũng làm vậy.
+                    </p>
+                  </div>
+                )}
                 <div className="scene-list">
                   {scenes.map((scene) => (
                     <article key={scene.id} className="scene-card">

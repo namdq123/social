@@ -20,7 +20,7 @@ MIME_BY_SUFFIX = {
     ".bmp": "image/bmp",
 }
 
-DEFAULT_MODEL = "heygen/heygen-video-1"
+DEFAULT_MODEL = "bytedance/seedance-2.5"
 
 
 class SeedanceError(Exception):

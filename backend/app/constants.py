@@ -25,6 +25,17 @@ CONTINUITY_RULES = """Thiết kế các cảnh để dựng nối mượt:
 
 MODEL_PRESETS = [
     {
+        "id": "bytedance/seedance-2.5",
+        "label": "Seedance 2.5",
+        "min_duration": 4,
+        "max_duration": 30,
+        "allow_auto_duration": False,
+        "audio": True,
+        "resolutions": ["720p", "480p"],
+        "ratios": ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+        "default_duration": 8,
+    },
+    {
         "id": "heygen/heygen-video-1",
         "label": "HeyGen Video 1",
         "min_duration": 5,

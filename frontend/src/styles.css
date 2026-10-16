@@ -291,6 +291,9 @@ input:focus, textarea:focus, select:focus { border-color: rgba(230, 161, 90, 0.8
 
 video { width: 100%; border-radius: 14px; background: #000; max-height: 360px; }
 
+.music-row { display: grid; gap: 10px; margin: 12px 0; }
+.music-row input[type="range"] { width: 100%; }
+
 .paste-box { display: grid; gap: 10px; margin-top: 12px; }
 .paste-field { display: grid; gap: 6px; }
 .paste-field textarea { width: 100%; resize: vertical; }

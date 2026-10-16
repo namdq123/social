@@ -37,6 +37,8 @@ router = APIRouter(tags=["episodes"])
 
 MAX_SCENES = 12
 IMAGE_BYTES = 4 * 1024 * 1024
+MUSIC_BYTES = 15 * 1024 * 1024
+MUSIC_SUFFIXES = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".flac"}
 SCENE_LABELS = {
     "draft": "Chưa có ảnh",
     "queued": "Đang chờ",
@@ -283,10 +285,30 @@ async def approve_episode(
     return to_episode_out(episode, int(count or 0))
 
 
+async def _store_music(music: UploadFile | None, job_id: str) -> Path | None:
+    if music is None or not (music.filename or "").strip():
+        return None
+    suffix = Path(music.filename).suffix.lower()
+    if suffix not in MUSIC_SUFFIXES:
+        raise HTTPException(status_code=400, detail="Nhạc nền dùng file mp3, m4a, aac, wav, ogg hoặc flac.")
+    payload = await music.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="File nhạc rỗng.")
+    if len(payload) > MUSIC_BYTES:
+        raise HTTPException(status_code=400, detail="File nhạc phải nhỏ hơn 15MB.")
+    folder = Path(get_settings().data_dir) / "music"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{job_id}{suffix}"
+    path.write_bytes(payload)
+    return path
+
+
 @router.post("/projects/{project_id}/episodes/{episode_id}/assemble", response_model=JobOut, status_code=201)
 async def assemble_episode(
     project_id: str,
     episode_id: str,
+    music: UploadFile | None = File(None),
+    music_volume: float = Form(0.15),
     session: AsyncSession = Depends(get_session),
 ) -> JobOut:
     project = await get_project_or_404(session, project_id)
@@ -331,11 +353,16 @@ async def assemble_episode(
         resolution = job.resolution
     job_id = str(uuid4())
     destination = Path(get_settings().data_dir) / "videos" / f"{job_id}.mp4"
+    music_path = await _store_music(music, job_id)
+    volume = min(0.4, max(0.05, music_volume))
     try:
-        await concat_videos(clips, destination)
+        await concat_videos(clips, destination, music=music_path, music_volume=volume)
     except AssembleError as exc:
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        if music_path is not None:
+            music_path.unlink(missing_ok=True)
     now = utcnow()
     script = {}
     if episode.script_json:
@@ -354,7 +381,10 @@ async def assemble_episode(
     merged = Job(
         id=job_id,
         project_id=project_id,
-        prompt=f"Tập ghép: {episode.title}. {len(clips)} cảnh nối theo thứ tự.",
+        prompt=(
+            f"Tập ghép: {episode.title}. {len(clips)} cảnh nối theo thứ tự."
+            + (" Có nhạc nền." if music_path else "")
+        ),
         model=model,
         resolution=resolution,
         ratio=scenes[0].aspect_ratio,
