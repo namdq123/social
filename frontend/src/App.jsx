@@ -12,13 +12,6 @@ const CHARACTER_STATUS = {
   failed: "Lỗi",
 };
 
-const SHEET_SLOTS = [
-  ["front", "Mặt trước"],
-  ["side", "Nghiêng"],
-  ["back", "Phía sau"],
-  ["expressions", "Biểu cảm"],
-];
-
 const EMPTY_FORM = {
   prompt: "",
   model: "",
@@ -29,7 +22,7 @@ const EMPTY_FORM = {
   autoDuration: false,
   generateAudio: true,
   watermark: false,
-  autoPublish: true,
+  autoPublish: false,
   imageUrl: "",
   image: null,
   youtubeTitle: "",
@@ -60,10 +53,6 @@ export default function App() {
   const [projectId, setProjectId] = useState(() => sessionStorage.getItem("projectId") || "");
   const [characters, setCharacters] = useState([]);
   const [projectName, setProjectName] = useState("");
-  const [characterName, setCharacterName] = useState("");
-  const [characterPrompt, setCharacterPrompt] = useState("");
-  const [characterAspect, setCharacterAspect] = useState("1:1");
-  const [characterFile, setCharacterFile] = useState(null);
   const [characterBusy, setCharacterBusy] = useState(false);
   const [characterError, setCharacterError] = useState("");
   const [episodes, setEpisodes] = useState([]);
@@ -274,7 +263,7 @@ export default function App() {
       body.set("duration", String(form.autoDuration ? -1 : form.duration));
       body.set("generate_audio", String(audio && form.generateAudio));
       body.set("watermark", String(form.watermark));
-      body.set("auto_publish", String(form.autoPublish));
+      body.set("auto_publish", "false");
       body.set("image_url", form.image ? "" : form.imageUrl);
       body.set("youtube_title", form.youtubeTitle);
       body.set("youtube_description", form.youtubeDescription);
@@ -292,16 +281,6 @@ export default function App() {
     }
   }
 
-  async function publishJob(id) {
-    setBanner(null);
-    try {
-      await request(`/jobs/${id}/publish`, { method: "POST" });
-      await refreshBoard();
-    } catch (error) {
-      setBanner({ tone: "bad", text: error.message });
-    }
-  }
-
   async function deleteJob(id) {
     if (!window.confirm("Xóa job này và file video đã lưu?")) return;
     try {
@@ -316,7 +295,7 @@ export default function App() {
     event.preventDefault();
     const name = projectName.trim();
     if (!name) return;
-    setCharacterError("");
+    setBanner(null);
     try {
       const created = await request("/projects", {
         method: "POST",
@@ -327,7 +306,7 @@ export default function App() {
       chooseProject(created.id);
       await refreshBoard();
     } catch (error) {
-      setCharacterError(error.message);
+      setBanner({ tone: "bad", text: error.message });
     }
   }
 
@@ -339,30 +318,6 @@ export default function App() {
       await refreshBoard();
     } catch (error) {
       setBanner({ tone: "bad", text: error.message });
-    }
-  }
-
-  async function addCharacter(event) {
-    event.preventDefault();
-    if (!projectId) return;
-    setCharacterError("");
-    setCharacterBusy(true);
-    try {
-      const body = new FormData();
-      body.set("name", characterName);
-      body.set("prompt", characterPrompt);
-      body.set("aspect_ratio", characterAspect);
-      if (characterFile) body.set("image", characterFile);
-      await request(`/projects/${projectId}/characters`, { method: "POST", body });
-      setCharacterName("");
-      setCharacterPrompt("");
-      setCharacterFile(null);
-      event.target.reset();
-      await refreshBoard();
-    } catch (error) {
-      setCharacterError(error.message);
-    } finally {
-      setCharacterBusy(false);
     }
   }
 
@@ -451,15 +406,11 @@ export default function App() {
     }
   }
 
-  async function drawSheet(characterId, slot) {
-    const message =
-      slot === "front"
-        ? "Vẽ mặt trước sẽ gọi API ảnh và tốn phí."
-        : "Vẽ góc này sẽ gọi API ảnh, gửi kèm ảnh mặt trước đã duyệt, và tốn phí.";
-    if (!window.confirm(message)) return;
+  async function drawSheet(characterId) {
+    if (!window.confirm("Vẽ mặt trước sẽ gọi API ảnh và tốn phí.")) return;
     setCharacterError("");
     try {
-      await request(`/projects/${projectId}/characters/${characterId}/sheet/${slot}`, { method: "POST" });
+      await request(`/projects/${projectId}/characters/${characterId}/sheet/front`, { method: "POST" });
       await refreshBoard();
     } catch (error) {
       setCharacterError(error.message);
@@ -669,7 +620,7 @@ export default function App() {
       const audio = selected ? selected.audio !== false : true;
       body.set("generate_audio", String(audio && form.generateAudio));
       body.set("watermark", String(form.watermark));
-      body.set("auto_publish", String(form.autoPublish));
+      body.set("auto_publish", "false");
       body.set("youtube_title", form.youtubeTitle);
       body.set("youtube_description", form.youtubeDescription);
       body.set("youtube_tags", form.youtubeTags);
@@ -774,7 +725,7 @@ export default function App() {
             <div className="panel-head">
               <h2>Nhân vật</h2>
               <p>
-                Tạo hồ sơ một lần, duyệt để khóa ngoại hình. Ảnh mặt trước đã duyệt là tham chiếu cho mọi góc và mọi cảnh.
+                Tạo hồ sơ một lần, duyệt để khóa ngoại hình. Ảnh mặt trước đã duyệt được gửi khi vẽ cảnh. Video chạy từ ảnh cảnh đó.
               </p>
             </div>
             {projectId && (
@@ -846,52 +797,40 @@ export default function App() {
                     <p className="prompt">{item.prompt}</p>
                     {item.bible_key ? (
                       <div className="sheet-list">
-                        {SHEET_SLOTS.map(([slot, label]) => {
-                          const image = (item.images || []).find((row) => row.slot === slot);
-                          const front = (item.images || []).find((row) => row.slot === "front");
+                        {(() => {
+                          const image = (item.images || []).find((row) => row.slot === "front");
                           const busy = image && (image.status === "queued" || image.status === "generating");
                           return (
-                            <div key={slot} className="sheet-row">
+                            <div className="sheet-row">
                               {image?.has_image ? (
                                 <img
                                   src={`/api/projects/${item.project_id}/characters/${item.id}/images/${image.id}`}
-                                  alt={label}
+                                  alt="Mặt trước"
                                 />
                               ) : (
                                 <div className="ph tiny">{image?.status_label || "Chưa có"}</div>
                               )}
                               <div>
-                                <strong>{label}</strong>
+                                <strong>Mặt trước</strong>
                                 {image?.status_label && <p className="meta-line">{image.status_label}</p>}
                                 {image?.error_message && <p className="form-error">{image.error_message}</p>}
                                 <div className="row-actions">
-                                  {slot === "front" && !busy && (
-                                    <button type="button" onClick={() => drawSheet(item.id, "front")}>
+                                  {!busy && (
+                                    <button type="button" onClick={() => drawSheet(item.id)}>
                                       {image?.has_image ? "Vẽ lại mặt trước" : "Vẽ mặt trước"}
                                     </button>
                                   )}
-                                  {slot === "front" && image?.status === "ready" && (
+                                  {image?.status === "ready" && (
                                     <button type="button" onClick={() => approveFront(item.id)}>
                                       Duyệt mặt trước
-                                    </button>
-                                  )}
-                                  {slot !== "front" && !busy && (
-                                    <button
-                                      type="button"
-                                      disabled={front?.status !== "approved"}
-                                      onClick={() => drawSheet(item.id, slot)}
-                                    >
-                                      {image?.has_image ? "Vẽ lại" : "Vẽ từ ảnh đã duyệt"}
                                     </button>
                                   )}
                                 </div>
                               </div>
                             </div>
                           );
-                        })}
-                        <p className="hint">
-                          Nghiêng, phía sau và biểu cảm chỉ vẽ sau khi mặt trước được duyệt, và luôn gửi ảnh đó làm tham chiếu.
-                        </p>
+                        })()}
+                        <p className="hint">Ảnh này được gửi khi vẽ cảnh. Video chỉ animate ảnh cảnh.</p>
                       </div>
                     ) : (
                       <>
@@ -958,55 +897,7 @@ export default function App() {
                 </article>
               ))}
             </div>
-            {projectId && (
-              <form className="character-form" onSubmit={addCharacter}>
-                <label>
-                  Tên nhân vật
-                  <input
-                    required
-                    maxLength={80}
-                    value={characterName}
-                    onChange={(event) => setCharacterName(event.target.value)}
-                  />
-                </label>
-                <label>
-                  Mô tả để OpenRouter vẽ
-                  <textarea
-                    rows={3}
-                    maxLength={2000}
-                    value={characterPrompt}
-                    placeholder="Cô gái 20 tuổi, tóc đen, áo linen trắng, nền đơn giản, nhìn thẳng."
-                    onChange={(event) => setCharacterPrompt(event.target.value)}
-                  />
-                </label>
-                <div className="grid-2">
-                  <label>
-                    Tỷ lệ ảnh
-                    <select value={characterAspect} onChange={(event) => setCharacterAspect(event.target.value)}>
-                      <option value="1:1">1:1</option>
-                      <option value="3:4">3:4</option>
-                      <option value="9:16">9:16</option>
-                      <option value="16:9">16:9</option>
-                    </select>
-                  </label>
-                  <label>
-                    Hoặc tải ảnh
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif,image/bmp"
-                      onChange={(event) => setCharacterFile(event.target.files?.[0] || null)}
-                    />
-                  </label>
-                </div>
-                <p className="hint">
-                  Mỗi nhân vật tối đa 4 ảnh. Ảnh dùng Hy Image 3.5. Khi vẽ cảnh, ảnh mặt trước đã duyệt của từng người được gửi kèm.
-                </p>
-                {characterError && <p className="form-error">{characterError}</p>}
-                <button className="button" type="submit" disabled={characterBusy || !projectId}>
-                  {characterBusy ? "Đang lưu..." : characterFile ? "Thêm ảnh nhân vật" : "Tạo ảnh bằng OpenRouter"}
-                </button>
-              </form>
-            )}
+            {characterError && <p className="form-error">{characterError}</p>}
           </section>
 
           <section className="panel composer episodes">
@@ -1249,27 +1140,10 @@ export default function App() {
                     Tạo tiếng
                   </label>
                 )}
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={form.autoPublish}
-                    onChange={(event) => patchForm({ autoPublish: event.target.checked })}
-                  />
-                  Tự đăng YouTube
-                </label>
               </div>
-              <label>
-                Tiêu đề YouTube
-                <input
-                  maxLength={100}
-                  value={form.youtubeTitle}
-                  placeholder="Để trống để dùng mô tả cảnh"
-                  onChange={(event) => patchForm({ youtubeTitle: event.target.value })}
-                />
-              </label>
             </details>
             <p className="hint">
-              Bấm vẽ ảnh cảnh sẽ gọi API ảnh và tốn phí. Video chỉ chạy sau khi ảnh cảnh đã có đủ nhân vật.
+              Bấm vẽ ảnh cảnh sẽ gọi API ảnh và tốn phí. Video chỉ chạy sau khi ảnh cảnh đã có đủ nhân vật. Tải file rồi dán tiêu đề và mô tả lên YouTube.
             </p>
             {pipelineError && <p className="form-error">{pipelineError}</p>}
             {formNote && <p className="form-note">{formNote}</p>}
@@ -1309,6 +1183,12 @@ export default function App() {
                   {job.has_video && (
                     <video src={`/api/jobs/${job.id}/video`} controls playsInline preload="metadata" />
                   )}
+                  {job.has_video && (
+                    <div className="paste-box">
+                      <CopyField label="Tiêu đề" value={job.youtube_title} />
+                      <CopyField label="Mô tả" value={job.youtube_description} rows={6} />
+                    </div>
+                  )}
                   <footer>
                     {job.youtube_url && (
                       <a href={job.youtube_url} target="_blank" rel="noreferrer">
@@ -1317,11 +1197,6 @@ export default function App() {
                     )}
                     {job.has_video && (
                       <a href={`/api/jobs/${job.id}/video?download=1`}>Tải file</a>
-                    )}
-                    {(job.status === "generated" || job.status === "upload_failed") && (
-                      <button type="button" onClick={() => publishJob(job.id)}>
-                        Đăng YouTube
-                      </button>
                     )}
                     {!ACTIVE.has(job.status) && (
                       <button type="button" className="danger" onClick={() => deleteJob(job.id)}>
@@ -1347,6 +1222,28 @@ export default function App() {
         />
       )}
     </div>
+  );
+}
+
+function CopyField({ label, value, rows = 2 }) {
+  const [note, setNote] = useState("");
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value || "");
+      setNote("Đã sao chép");
+    } catch {
+      setNote("Hãy chọn chữ rồi sao chép");
+    }
+  }
+  if (!value) return null;
+  return (
+    <label className="paste-field">
+      {label}
+      <textarea readOnly rows={rows} value={value} />
+      <button type="button" onClick={copy}>
+        {note || "Sao chép"}
+      </button>
+    </label>
   );
 }
 

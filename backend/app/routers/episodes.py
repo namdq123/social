@@ -31,6 +31,7 @@ from app.services.story import (
     replace_episode_script,
     save_scripted_episode,
     story_document,
+    youtube_listing,
 )
 router = APIRouter(tags=["episodes"])
 
@@ -288,7 +289,7 @@ async def assemble_episode(
     episode_id: str,
     session: AsyncSession = Depends(get_session),
 ) -> JobOut:
-    await get_project_or_404(session, project_id)
+    project = await get_project_or_404(session, project_id)
     episode = await get_episode_or_404(session, project_id, episode_id)
     scenes = (
         await session.scalars(
@@ -336,6 +337,20 @@ async def assemble_episode(
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     now = utcnow()
+    script = {}
+    if episode.script_json:
+        try:
+            loaded = json.loads(episode.script_json)
+            if isinstance(loaded, dict):
+                script = loaded
+        except json.JSONDecodeError:
+            script = {}
+    heading, description = youtube_listing(
+        episode.title,
+        episode.summary or script.get("summary") or "",
+        script.get("scenes") or [],
+        approved_bible(project),
+    )
     merged = Job(
         id=job_id,
         project_id=project_id,
@@ -347,8 +362,8 @@ async def assemble_episode(
         generate_audio=True,
         watermark=False,
         local_path=str(destination),
-        youtube_title=episode.title[:100],
-        youtube_description=(episode.summary or episode.title)[:5000],
+        youtube_title=heading,
+        youtube_description=description,
         youtube_privacy="unlisted",
         youtube_category_id="22",
         auto_publish=False,
@@ -568,7 +583,7 @@ async def create_scene_video(
     duration: int = Form(5),
     generate_audio: str = Form("true"),
     watermark: str = Form("false"),
-    auto_publish: str = Form("true"),
+    auto_publish: str = Form("false"),
     youtube_title: str = Form(""),
     youtube_description: str = Form(""),
     youtube_tags: str = Form(""),
@@ -624,6 +639,16 @@ async def create_scene_video(
         if project.bible_status == "approved":
             prompt += " Không đổi ngoại hình, trang phục và vật đặc trưng trong hồ sơ đã khóa."
     now = utcnow()
+    scene_summary = ""
+    if scripted:
+        scene_summary = scripted.get("main_action") or ""
+    scene_summary = scene_summary or scene.prompt
+    scripted_title, scripted_description = youtube_listing(
+        "",
+        scene_summary,
+        [scripted] if scripted else [],
+        approved_bible(project),
+    )
     job = Job(
         id=job_id,
         project_id=scene.project_id,
@@ -636,12 +661,12 @@ async def create_scene_video(
         generate_audio=form_bool(generate_audio, True),
         watermark=form_bool(watermark, False),
         image_path=str(target),
-        youtube_title=make_title(youtube_title, scene.prompt),
-        youtube_description=(youtube_description.strip() or scene.prompt)[:5000],
+        youtube_title=make_title(youtube_title, scripted_title),
+        youtube_description=(youtube_description.strip() or scripted_description)[:5000],
         youtube_tags=youtube_tags.strip()[:500],
         youtube_privacy=youtube_privacy,
         youtube_category_id=youtube_category_id,
-        auto_publish=form_bool(auto_publish, True),
+        auto_publish=form_bool(auto_publish, False),
         status="queued",
         created_at=now,
         updated_at=now,

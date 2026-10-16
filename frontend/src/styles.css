@@ -98,6 +98,13 @@ h2 { margin: 0; font-size: 28px; }
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 6px 10px;
+  color: var(--text);
+}
+
+.row-actions .button {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
 }
 
 .textish { padding-inline: 12px; }
@@ -283,6 +290,10 @@ input:focus, textarea:focus, select:focus { border-color: rgba(230, 161, 90, 0.8
 }
 
 video { width: 100%; border-radius: 14px; background: #000; max-height: 360px; }
+
+.paste-box { display: grid; gap: 10px; margin-top: 12px; }
+.paste-field { display: grid; gap: 6px; }
+.paste-field textarea { width: 100%; resize: vertical; }
 
 .card footer button, .card footer a {
   border-radius: 999px;

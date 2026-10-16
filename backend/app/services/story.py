@@ -339,6 +339,50 @@ def normalize_episode(data: dict, bible: dict) -> dict:
     }
 
 
+def _speaker_name(token: str, bible: dict | None) -> str:
+    key = as_text(token)
+    if bible:
+        for person in bible.get("characters") or []:
+            if person.get("id") == key or person.get("name") == key:
+                return as_text(person.get("name")) or key
+    bare = key.removeprefix("CHAR_").replace("_", " ").strip()
+    if not bare:
+        return key
+    return bare[:1].upper() + bare[1:].lower()
+
+
+def youtube_listing(title: str, summary: str, scenes: list | None, bible: dict | None = None) -> tuple[str, str]:
+    story = " ".join(as_text(summary).split())
+    fallback = " ".join(as_text(title).split())
+    heading = story or fallback or "Video"
+    if len(heading) > 100:
+        cut = heading[:100]
+        space = cut.rfind(" ")
+        heading = (cut[:space] if space >= 40 else cut).rstrip(" .,")
+    lines = [story] if story else []
+    for scene in scenes or []:
+        if not isinstance(scene, dict):
+            continue
+        action = " ".join(as_text(scene.get("main_action")).split())
+        spoken = []
+        for line in scene.get("dialogue") or []:
+            if not isinstance(line, dict):
+                continue
+            text = as_text(line.get("text"))
+            if not text:
+                continue
+            spoken.append(f"{_speaker_name(line.get('character_id'), bible)}: {text}")
+        parts = []
+        if action and action != story:
+            parts.append(action)
+        parts.extend(spoken)
+        block = "\n".join(parts).strip()
+        if block and block not in lines:
+            lines.append(block)
+    description = "\n\n".join(line for line in lines if line).strip()[:5000]
+    return heading[:100], description or heading[:5000]
+
+
 def render_script(episode_obj: dict) -> str:
     lines = [episode_obj["summary"], ""]
     for index, scene in enumerate(episode_obj["scenes"], start=1):
